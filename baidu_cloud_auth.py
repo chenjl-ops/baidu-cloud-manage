@@ -76,7 +76,7 @@ class Bcloud(object):
         return S.hexdigest()
 
     def __getSigningKey(self):
-        from baseConf import Bcloud_AccessKeyID, Bcloud_AccessKeySecret
+        from baidu_base_config import Bcloud_AccessKeyID, Bcloud_AccessKeySecret
         AuthStringPrefix = "bce-auth-v1/{accessKeyId}/{timestamp}/{expirationPeriodInSeconds}".format(accessKeyId=Bcloud_AccessKeyID, timestamp=self.getUtcTime(), expirationPeriodInSeconds=1800)
         return self.getHmacSha256(Bcloud_AccessKeySecret, AuthStringPrefix)
 
