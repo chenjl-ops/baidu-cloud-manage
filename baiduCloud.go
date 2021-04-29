@@ -1,13 +1,16 @@
 package baiduauth
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"github.com/Sirupsen/logrus"
+	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
+	"net/http"
 	"net/url"
 	"op-bill-api/internal/pkg/apollo"
 	"sort"
@@ -24,6 +27,7 @@ type BaiduCloud struct {
 	AccessKeySecret string
 }
 
+
 func NewBaiduCloud(url string, headers map[string]string, method string) *BaiduCloud {
 	b := BaiduCloud{
 		Url:             url,
@@ -36,11 +40,44 @@ func NewBaiduCloud(url string, headers map[string]string, method string) *BaiduC
 	return &b
 }
 
-func (b *BaiduCloud) getAuthorization() string {
-	// return "bce-auth-v1/{key}/{utc}/1800/{header}/{signature}".format(key=Bcloud_AccessKeyID, utc=self.getUtcTime(), header=self.getSignedHeaders() , signature=self.getSignature())
-	return fmt.Sprintf("bce-auth-v1/%s/%s/1800/%s/%s", b.AccessKeyID, b.getUtcTime(), b.getSignedHeaders(), b.getSignature())
+func (b *BaiduCloud) request(data map[string]interface{}, result interface{}) error {
+	methods := []string{"GET", "PUT", "POST", "DELETE"}
+	if funk.Contains(methods, strings.ToUpper(b.Method)) {
+
+		bytesData, err := json.Marshal(data)
+		if err != nil {
+			logrus.Println("json error", err)
+			return err
+		} else {
+			request, err := http.NewRequest(strings.ToUpper(b.Method), b.Url, bytes.NewReader(bytesData))
+			if err != nil {
+				logrus.Println("json error", err)
+				return err
+			}
+			for k, v := range b.Headers {
+				request.Header.Set(k, v)
+			}
+			request.Header.Set("authorization", b.getAuthorization())
+			client := http.Client{}
+			resp, err := client.Do(request)
+			if err != nil {
+				fmt.Println(err.Error())
+				return err
+			}
+			err1 := json.NewDecoder(resp.Body).Decode(result)
+			if err1 != nil {
+				return err1
+			}
+			return nil
+		}
+	} else {
+		return errors.New(fmt.Sprintf("%s not allow", b.Method))
+	}
 }
 
+func (b *BaiduCloud) getAuthorization() string {
+	return fmt.Sprintf("bce-auth-v1/%s/%s/1800/%s/%s", b.AccessKeyID, b.getUtcTime(), b.getSignedHeaders(), b.getSignature())
+}
 
 func (b *BaiduCloud) getCanonicalRequest() string {
 	CanonicalUri := b.getCanonicalURI()
@@ -66,7 +103,9 @@ func (b *BaiduCloud) getHmacSha256(key string, str string) string {
 	h.Write([]byte(str))
 
 	sha := hex.EncodeToString(h.Sum(nil))
-	return base64.StdEncoding.EncodeToString([]byte(sha))
+	// 返回字符串
+	// s := base64.StdEncoding.EncodeToString([]byte(sha))
+	return sha
 }
 
 func (b *BaiduCloud) getSigningKey() string {
@@ -75,18 +114,11 @@ func (b *BaiduCloud) getSigningKey() string {
 }
 
 func (b *BaiduCloud) getSignedHeaders() string {
-	/*
-	data = [i.lower() for i in list(self.headers.keys()) if i.startswith("x-bce-") or i.lower() in self.sign_headers]
-	data.sort()
-	return ";".join(data)
-	 */
 	SignHeader := []string{"host", "content-md5", "content-length", "content-type"}
 	var data []string
 	for k := range b.Headers {
 		if strings.HasPrefix(k, "x-bce-") || funk.Contains(SignHeader, strings.ToLower(k)) {
 			data = append(data, strings.ToLower(k))
-		} else {
-			data = append(data, k)
 		}
 	}
 	sort.Strings(data)
@@ -97,7 +129,7 @@ func (b *BaiduCloud) getCanonicalHeaders() string {
 	SignHeader := []string{"host", "content-md5", "content-length", "content-type"}
 	var data []string
 	for k, v := range b.Headers {
-		if strings.HasPrefix(k, "x-bce-") || funk.Contains(SignHeader,strings.ToLower(k)) {
+		if strings.HasPrefix(k, "x-bce-") || funk.Contains(SignHeader, strings.ToLower(k)) {
 			data = append(data, fmt.Sprintf("%s:%s", urlEncode(strings.ToLower(k)), urlEncode(strings.TrimSpace(v))))
 		}
 	}
@@ -133,16 +165,16 @@ func (b *BaiduCloud) getCanonicalURI() string {
 		logrus.Println("url parse解析异常: ", err)
 	}
 	if up.Path != "" {
-		return urlEncode(up.Path)
+		return up.Path
 	} else {
-		return urlEncode("/")
+		return "/"
 	}
 
 }
 
 // url编码
 func urlEncode(s string) string {
-	return url.QueryEscape(s)
+	return strings.Trim(fmt.Sprintln(url.QueryEscape(s)), "\n")
 }
 
 // url parse
